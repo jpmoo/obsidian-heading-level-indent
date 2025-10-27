@@ -1,9 +1,9 @@
 {
-	"id": "heading-level-indent",
-	"name": "Heading Level Indent",
+	"id": "heading-level-indent-unindent",
+	"name": "Heading Level Indent (Unindent)",
 	"version": "2.1.1",
 	"minAppVersion": "0.12.0",
-	"description": "Indenting content under headers based on their level",
+	"description": "Indenting content under headers based on their level, with %%unindent%% support",
 	"author": "svonjoi",
 	"authorUrl": "https://github.com/svonjoi",
 	"isDesktopOnly": false

@@ -169,6 +169,13 @@ export class ShitIndenting {
 				continue suck;
 			}
 
+		// Skip unindent marker (let user handle hiding manually with <span hidden>)
+		const divText = div.innerText;
+		if (divText.includes("%%unindent%%")) {
+			// Just skip processing this div, don't add any padding
+			continue suck;
+		}
+
 			const headingNodeList = div.querySelectorAll("h1, h2, h3, h4, h5, h6"),
 				currentDivIsHeading = headingNodeList.length > 0;
 

@@ -82,7 +82,11 @@ function getDecorationSet(state: EditorState): DecorationSetWithIntervals {
 	/**
 	 * scan headings across document
 	 */
-	const settings = (window as any).app.plugins.plugins["heading-level-indent"].settings;
+	const plugin = (window as any).app?.plugins?.plugins?.["heading-level-indent-unindent"];
+	if (!plugin?.settings) {
+		return { decorations: Decoration.none, intervals: [] };
+	}
+	const settings = plugin.settings;
 
 	const headings: {
 		text: string;
@@ -92,6 +96,17 @@ function getDecorationSet(state: EditorState): DecorationSetWithIntervals {
 	}[] = [];
 
 	let highestLevelInDocument = 6;
+
+	const unindentLineNumbers: number[] = [];
+
+	// Scan for unindent markers
+	for (let i = 1; i <= state.doc.lines; i++) {
+		const line = state.doc.line(i);
+		const text = state.doc.sliceString(line.from, line.to);
+		if (text.includes("%%unindent%%")) {
+			unindentLineNumbers.push(i);
+		}
+	}
 
 	syntaxTree(state).iterate({
 		enter(node) {
@@ -119,14 +134,25 @@ function getDecorationSet(state: EditorState): DecorationSetWithIntervals {
 		}
 	}
 
-	const builder = new RangeSetBuilder<Decoration>();
-
 	const el = document.querySelector(".workspace-leaf.mod-active .cm-content");
 	if (el === null) return { decorations: Decoration.none, intervals: [] };
 
 	const containerWidth = parseInt(getComputedStyle(el).width);
 
 	const intervals: [number, number][] = [];
+
+	const builder = new RangeSetBuilder<Decoration>();
+
+	// Helper function to check if a line comes at or after any unindent marker
+	const isAfterUnindent = (lineNum: number): boolean => {
+		for (const unindentLineNum of unindentLineNumbers) {
+			// Line is "after" unindent if it's at or after the unindent line
+			if (unindentLineNum <= lineNum) {
+				return true;
+			}
+		}
+		return false;
+	};
 
 	for (const [index, heading] of headings.entries()) {
 		const { level, headingLineNumber, headingPos } = heading;
@@ -135,9 +161,30 @@ function getDecorationSet(state: EditorState): DecorationSetWithIntervals {
 		const firstDataLineNumber = headingLineNumber + 1;
 		const lastDataLineNumber = headings[index + 1]?.headingLineNumber - 1 || state.doc.lines;
 
-		const pxForDataLine = settings[`h${level}`] || 0;
-		const pxForHeadingLine = settings[`h${level - 1}` || 0];
+		// Find if there's an unindent marker between this heading and next
+		let unindentInSection = false;
+		let unindentPosition = -1;
+		for (const unindentLineNum of unindentLineNumbers) {
+			if (unindentLineNum > headingLineNumber && 
+			    (headings[index + 1] === undefined || unindentLineNum < headings[index + 1].headingLineNumber)) {
+				unindentInSection = true;
+				unindentPosition = unindentLineNum;
+				break;
+			}
+		}
 
+		// Check if this heading comes at or after an unindent marker
+		const headingAfterUnindent = isAfterUnindent(headingLineNumber);
+		
+		// Headings should be indented normally regardless of prior unindent markers
+		// The unindent affects content within a heading's section, not the heading itself
+		const shouldIndent = true;
+
+		const pxForDataLine = settings[`h${level}`] || 0;
+		const pxForHeadingLine = settings[`h${level - 1}`] || 0;
+
+		// For intervals, use the heading's indent even if unindent is in section
+		// The unindent marker itself will add an interval at its position to reset to 0
 		intervals.push([headingPos, pxForDataLine]);
 		const dataStyles =
 			`left:${pxForDataLine}px;` +
@@ -156,12 +203,35 @@ function getDecorationSet(state: EditorState): DecorationSetWithIntervals {
 		);
 
 		for (let j = firstDataLineNumber; j < lastDataLineNumber + 1; j++) {
+			// Skip if this is an unindent line (don't add any decoration to it)
+			if (unindentLineNumbers.includes(j)) {
+				intervals.push([state.doc.line(j).from, 0]);
+				continue;
+			}
+			
+			let effectiveIndent = pxForDataLine;
+			
+			// Check if any unindent marker appears before this line within this heading's section
+			// If so, this line should have 0 indent
+			for (const unindentLineNum of unindentLineNumbers) {
+				// Unindent marker is in this section and before or at this content line
+				if (unindentLineNum > headingLineNumber && unindentLineNum <= j && 
+				    unindentLineNum < lastDataLineNumber) {
+					effectiveIndent = 0;
+					break;
+				}
+			}
+			
+			const lineStyles =
+				`left:${effectiveIndent}px;` +
+				`width:${containerWidth - effectiveIndent}px;`;
+			
 			const dataLine = state.doc.line(j);
 			builder.add(
 				dataLine.from,
 				dataLine.from,
 				Decoration.line({
-					attributes: { style: dataStyles }
+					attributes: { style: lineStyles }
 				})
 			);
 		}
